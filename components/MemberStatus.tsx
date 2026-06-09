@@ -135,7 +135,6 @@ export default function MemberStatus({ members, guilds }: { members: any[], guil
               className="w-full bg-slate-950 border border-slate-800 px-3 py-3 rounded-xl text-xs font-bold text-slate-300 outline-none cursor-pointer"
             >
               <option value="">모든 길드 필터</option>
-              <option value="none">무소속 단원</option>
               {guilds.map(g => <option key={g.id} value={g.guild_name}>{g.guild_name}</option>)}
             </select>
           </div>

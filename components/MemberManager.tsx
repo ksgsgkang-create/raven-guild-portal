@@ -209,7 +209,6 @@ export default function MemberManager({
                 onChange={(e) => setSelectedGuild(e.target.value)} 
                 className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white cursor-pointer"
               >
-                <option value="">무소속 (선택 안 함)</option>
                 {guilds.map((g) => (
                   <option key={g.id} value={g.guild_name}>{g.guild_name}</option>
                 ))}
@@ -297,7 +296,6 @@ export default function MemberManager({
             className="w-full bg-slate-900 border border-slate-800 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-300 outline-none cursor-pointer"
           >
             <option value="">모든 길드 필터</option>
-            <option value="none">무소속 단원</option>
             {guilds.map(g => <option key={g.id} value={g.guild_name}>{g.guild_name}</option>)}
           </select>
         </div>
@@ -351,7 +349,6 @@ export default function MemberManager({
                           onChange={(e) => setEditGuild(e.target.value)} 
                           className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs w-full outline-none text-white cursor-pointer"
                         >
-                          <option value="">무소속 (선택 안 함)</option>
                           {guilds.map((g) => (
                             <option key={g.id} value={g.guild_name}>{g.guild_name}</option>
                           ))}
