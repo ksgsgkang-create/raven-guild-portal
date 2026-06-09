@@ -89,9 +89,8 @@ export default function ActivityRanking({ members }: { members: any[] }) {
       });
   }, [members]);
 
-  // 4. [고도화 핵심] 테이블 결합 기반 실시간 보스 참여 기여도 랭킹 연산
+  // 4. 테이블 결합 기반 실시간 보스 참여 기여도 랭킹 연산
   const bossRanking = useMemo(() => {
-    // 먼저 모든 멤버 기반의 기본 틀 생성
     const rankingMap: Record<string, { character_name: string; guild_name: string; totalScore: number; bossCount: number; id: any }> = {};
     
     members.forEach(m => {
@@ -104,17 +103,15 @@ export default function ActivityRanking({ members }: { members: any[] }) {
       };
     });
 
-    // 수집된 원본 로그를 돌며 점수 가중치 및 횟수 가산 합산 연산
     rawRaidLogs.forEach(log => {
       const charName = log.character_name.trim();
       if (rankingMap[charName]) {
-        const multiplier = bossSettings[log.boss_name] ?? 10; // 배점 설정 안 되어 있으면 기본 10점
+        const multiplier = bossSettings[log.boss_name] ?? 10;
         rankingMap[charName].totalScore += multiplier;
         rankingMap[charName].bossCount += 1;
       }
     });
 
-    // 객체를 배열로 변환 후 총 기여도 높은 순 -> 참여 횟수 많은 순 정렬
     return Object.values(rankingMap).sort((a, b) => {
       if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
       return b.bossCount - a.bossCount;
@@ -143,18 +140,16 @@ export default function ActivityRanking({ members }: { members: any[] }) {
     const classCount: Record<string, number> = {};
     const guildStats: Record<string, { total: number; count: number }> = {};
     
-    // 직업별 최고 전투력 추적용
     const maxPerClass: Record<string, any> = {};
-    // 길드별 최고 전투력 추적용
     const maxPerGuild: Record<string, any> = {};
 
-    let topCombatPower = null;
+    // 타입 에러 수정: 명시적으로 any | null 타입 지정
+    let topCombatPower: any | null = null;
 
     members.forEach(m => {
       const score = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
       const memberData = { ...m, totalScore: score };
 
-      // 1) 직업군별 최고 전투력 갱신
       if (m.job_class) {
         classCount[m.job_class] = (classCount[m.job_class] || 0) + 1;
         if (!maxPerClass[m.job_class] || score > maxPerClass[m.job_class].totalScore) {
@@ -162,7 +157,6 @@ export default function ActivityRanking({ members }: { members: any[] }) {
         }
       }
 
-      // 2) 길드별 전투력 통계 및 최고 전투력 갱신
       const guildKey = m.guild_name || '무소속';
       if (m.guild_name) {
         if (!guildStats[guildKey]) guildStats[guildKey] = { total: 0, count: 0 };
@@ -173,7 +167,6 @@ export default function ActivityRanking({ members }: { members: any[] }) {
         maxPerGuild[guildKey] = memberData;
       }
 
-      // 3) 연합 최고 종합 전투력 갱신
       if (!topCombatPower || score > topCombatPower.totalScore) {
         topCombatPower = memberData;
       }
@@ -192,7 +185,6 @@ export default function ActivityRanking({ members }: { members: any[] }) {
     const topPerClass = Object.values(maxPerClass);
     const topPerGuild = Object.values(maxPerGuild);
 
-    // 누적 보스 참여 랭킹 TOP 3 (가공된 bossRanking 데이터 활용)
     const topBossRanks = bossRanking.slice(0, 3);
 
     return { 
