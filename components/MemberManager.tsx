@@ -17,7 +17,21 @@ const classList = [
   '워로드'
 ];
 
-export default function MemberManager({ members, guilds, showToast, onRefresh }: { members: any[], guilds: any[], currentUser: any, showToast: (msg: string, type?: 'success' | 'error') => void, onRefresh: () => void }) {
+export default function MemberManager({ 
+  members, 
+  guilds, 
+  allUsers, // page.tsx에서 대장님이 넘겨주는 변수명 대응
+  isAdmin, 
+  onRefresh, 
+  showToast 
+}: { 
+  members?: any[], 
+  guilds: any[], 
+  allUsers?: any[], 
+  isAdmin?: any, 
+  onRefresh: () => void, 
+  showToast: (message: string, type?: 'error' | 'success') => void 
+}) {
   const [characterName, setCharacterName] = useState('');
   const [className, setClassName] = useState('');
   const [selectedGuild, setSelectedGuild] = useState('');
