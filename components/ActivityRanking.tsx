@@ -10,6 +10,11 @@ const COLORS = ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185', '#34d399'
 
 export default function ActivityRanking({ members }: { members: any[] }) {
   const [subTab, setSubTab] = useState<'combat' | 'boss' | 'stats'>('combat');
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
   
   // 기본 조회 기간을 이번 달 1일부터 오늘까지로 스마트 세팅
   const [startDate, setStartDate] = useState(() => {
@@ -122,29 +127,56 @@ export default function ActivityRanking({ members }: { members: any[] }) {
     return rawRaidLogs.filter(log => log.character_name.trim() === selectedCharacter.trim());
   }, [selectedCharacter, rawRaidLogs]);
 
-  // 6. Recharts 라이브러리용 데이터 정제 파트 (기존 유지)
+  // 6. 통계 데이터 산출
   const statsData = useMemo(() => {
-    if (members.length === 0) return { classChartData: [], guildChartData: [], topAtk: null, topDef: null, topHit: null };
+    if (members.length === 0) {
+      return { 
+        classChartData: [], 
+        guildChartData: [], 
+        topCombatPower: null,
+        topPerClass: [],
+        topPerGuild: [],
+        topBossRanks: []
+      };
+    }
 
     const classCount: Record<string, number> = {};
     const guildStats: Record<string, { total: number; count: number }> = {};
-    let topAtk = members[0];
-    let topDef = members[0];
-    let topHit = members[0];
+    
+    // 직업별 최고 전투력 추적용
+    const maxPerClass: Record<string, any> = {};
+    // 길드별 최고 전투력 추적용
+    const maxPerGuild: Record<string, any> = {};
+
+    let topCombatPower = null;
 
     members.forEach(m => {
-      if (m.job_class) classCount[m.job_class] = (classCount[m.job_class] || 0) + 1;
-      
-      if (m.guild_name) {
-        const score = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
-        if (!guildStats[m.guild_name]) guildStats[m.guild_name] = { total: 0, count: 0 };
-        guildStats[m.guild_name].total += score;
-        guildStats[m.guild_name].count += 1;
+      const score = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
+      const memberData = { ...m, totalScore: score };
+
+      // 1) 직업군별 최고 전투력 갱신
+      if (m.job_class) {
+        classCount[m.job_class] = (classCount[m.job_class] || 0) + 1;
+        if (!maxPerClass[m.job_class] || score > maxPerClass[m.job_class].totalScore) {
+          maxPerClass[m.job_class] = memberData;
+        }
       }
 
-      if ((m.atk || 0) > (topAtk.atk || 0)) topAtk = m;
-      if ((m.def || 0) > (topDef.def || 0)) topDef = m;
-      if ((m.hit || 0) > (topHit.hit || 0)) topHit = m;
+      // 2) 길드별 전투력 통계 및 최고 전투력 갱신
+      const guildKey = m.guild_name || '무소속';
+      if (m.guild_name) {
+        if (!guildStats[guildKey]) guildStats[guildKey] = { total: 0, count: 0 };
+        guildStats[guildKey].total += score;
+        guildStats[guildKey].count += 1;
+      }
+      if (!maxPerGuild[guildKey] || score > maxPerGuild[guildKey].totalScore) {
+        maxPerGuild[guildKey] = memberData;
+      }
+
+      // 3) 연합 최고 종합 전투력 갱신
+      if (!topCombatPower || score > topCombatPower.totalScore) {
+        topCombatPower = memberData;
+      }
     });
 
     const classChartData = Object.keys(classCount).map(name => ({
@@ -157,8 +189,27 @@ export default function ActivityRanking({ members }: { members: any[] }) {
       '평균 전투력': Math.round(guildStats[name].total / guildStats[name].count)
     })).sort((a, b) => b['평균 전투력'] - a['평균 전투력']);
 
-    return { classChartData, guildChartData, topAtk, topDef, topHit };
-  }, [members]);
+    const topPerClass = Object.values(maxPerClass);
+    const topPerGuild = Object.values(maxPerGuild);
+
+    // 누적 보스 참여 랭킹 TOP 3 (가공된 bossRanking 데이터 활용)
+    const topBossRanks = bossRanking.slice(0, 3);
+
+    return { 
+      classChartData, 
+      guildChartData, 
+      topCombatPower,
+      topPerClass,
+      topPerGuild,
+      topBossRanks
+    };
+  }, [members, bossRanking]);
+
+  if (!isMounted) {
+    return (
+      <div className="bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6 animate-pulse min-h-[400px]" />
+    );
+  }
 
   return (
     <div className="bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6">
@@ -201,7 +252,7 @@ export default function ActivityRanking({ members }: { members: any[] }) {
           </div>
         )}
 
-        {/* TAB 2: 기간별 보스참여 랭킹 (완벽 실시간화) */}
+        {/* TAB 2: 기간별 보스참여 랭킹 */}
         {subTab === 'boss' && (
           <div className="space-y-6">
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center justify-between">
@@ -298,28 +349,103 @@ export default function ActivityRanking({ members }: { members: any[] }) {
           </div>
         )}
 
-        {/* TAB 3: 라이브러리를 활용한 시각화 통계 */}
+        {/* TAB 3: 시각화 통계 */}
         {subTab === 'stats' && (
           <div className="space-y-8">
-            {/* 최강자 상단 카드보드 */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-gradient-to-br from-red-950/30 to-slate-900 p-4 rounded-2xl border border-red-900/30 shadow-md">
-                <div className="text-xs text-red-400 font-bold mb-1">⚔️ 연합 최강 공격력</div>
-                <div className="text-base font-black text-white">{statsData.topAtk?.character_name || '-'}</div>
-                <div className="text-[11px] text-slate-400 mt-1">최고치: <span className="font-mono text-red-400 font-bold">{(statsData.topAtk?.atk || 0).toLocaleString()}</span></div>
+            {/* 1. 종합 최고 전투력 카드 */}
+            <div className="bg-gradient-to-br from-amber-950/30 via-slate-900 to-slate-950 p-6 rounded-2xl border border-amber-500/30 shadow-md flex items-center justify-between">
+              <div>
+                <div className="text-xs text-amber-400 font-extrabold uppercase tracking-widest mb-1">👑 연합 최고 종합 전투력</div>
+                <div className="text-2xl font-black text-white">{statsData.topCombatPower?.character_name || '-'}</div>
+                <div className="text-xs text-slate-400 mt-1">소속 길드 : <span className="text-slate-200 font-bold">{statsData.topCombatPower?.guild_name || '무소속'}</span></div>
               </div>
-              <div className="bg-gradient-to-br from-blue-950/30 to-slate-900 p-4 rounded-2xl border border-blue-900/30 shadow-md">
-                <div className="text-xs text-blue-400 font-bold mb-1">🛡️ 연합 최고 방어력</div>
-                <div className="text-base font-black text-white">{statsData.topDef?.character_name || '-'}</div>
-                <div className="text-[11px] text-slate-400 mt-1">최고치: <span className="font-mono text-blue-400 font-bold">{(statsData.topDef?.def || 0).toLocaleString()}</span></div>
-              </div>
-              <div className="bg-gradient-to-br from-emerald-950/30 to-slate-900 p-4 rounded-2xl border border-emerald-900/30 shadow-md">
-                <div className="text-xs text-emerald-400 font-bold mb-1">🎯 연합 최고 명중도</div>
-                <div className="text-base font-black text-white">{statsData.topHit?.character_name || '-'}</div>
-                <div className="text-[11px] text-slate-400 mt-1">최고치: <span className="font-mono text-emerald-400 font-bold">{(statsData.topHit?.hit || 0).toLocaleString()}</span></div>
+              <div className="text-right">
+                <div className="text-[11px] text-slate-500">종합 점수</div>
+                <div className="text-3xl font-mono font-black text-amber-400 mt-0.5">
+                  {(statsData.topCombatPower?.totalScore || 0).toLocaleString()}
+                </div>
               </div>
             </div>
 
+            {/* 2. 누적 보스 참여 랭킹 TOP 3 & 직업/길드별 최고 전투력 카드 그리드 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* 보스 참여 TOP 3 */}
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+                <h4 className="text-xs text-slate-300 font-bold flex items-center gap-2">🏆 누적 보스 참여 랭킹 TOP 3</h4>
+                <div className="space-y-3 mt-4">
+                  {statsData.topBossRanks.length > 0 ? (
+                    statsData.topBossRanks.map((m: any, idx: number) => (
+                      <div key={m.character_name} className="flex items-center justify-between bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : idx === 1 ? 'bg-slate-700 text-slate-300' : 'bg-amber-800/30 text-amber-600'}`}>
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-white">{m.character_name}</div>
+                            <div className="text-[9px] text-slate-400 mt-0.5">{m.guild_name}</div>
+                          </div>
+                        </div>
+                        <div className="text-right font-mono">
+                          <div className="text-[10px] text-emerald-400 font-black">{m.totalScore.toLocaleString()}점</div>
+                          <div className="text-[9px] text-slate-500 mt-0.5">{m.bossCount}회 참여</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-slate-600 italic text-center py-6">데이터가 없습니다.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* 직업별 최고 전투력 */}
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+                <h4 className="text-xs text-slate-300 font-bold flex items-center gap-2">⚔️ 직업별 최고 전투력</h4>
+                <div className="space-y-3 mt-4 max-h-[175px] overflow-y-auto pr-1">
+                  {statsData.topPerClass.length > 0 ? (
+                    statsData.topPerClass.map((m: any) => (
+                      <div key={m.job_class} className="flex items-center justify-between bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
+                        <div>
+                          <div className="text-xs font-black text-sky-400">{m.job_class}</div>
+                          <div className="text-[10px] text-slate-300 mt-0.5 font-bold">{m.character_name}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] text-slate-500">{m.guild_name}</div>
+                          <div className="font-mono text-xs font-black text-slate-200 mt-0.5">{m.totalScore.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-slate-600 italic text-center py-6">데이터가 없습니다.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* 길드별 최고 전투력 */}
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+                <h4 className="text-xs text-slate-300 font-bold flex items-center gap-2"><Shield size={14} className="text-amber-500" /> 길드별 최고 전투력</h4>
+                <div className="space-y-3 mt-4 max-h-[175px] overflow-y-auto pr-1">
+                  {statsData.topPerGuild.length > 0 ? (
+                    statsData.topPerGuild.map((m: any) => (
+                      <div key={m.guild_name} className="flex items-center justify-between bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
+                        <div>
+                          <div className="text-xs font-black text-amber-400">{m.guild_name}</div>
+                          <div className="text-[10px] text-slate-300 mt-0.5 font-bold">{m.character_name} ({m.job_class})</div>
+                        </div>
+                        <div className="text-right font-mono text-xs font-black text-slate-200">
+                          {m.totalScore.toLocaleString()}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-slate-600 italic text-center py-6">등록된 길드 정보가 없습니다.</div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* 3. 시각화 차트 영역 */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* 차트 1: 고급 도넛 형태 직업 분포도 */}
               <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
