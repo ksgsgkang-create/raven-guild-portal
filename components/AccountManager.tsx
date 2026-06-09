@@ -4,7 +4,15 @@ import { supabase } from '../app/supabase';
 import { motion } from 'framer-motion';
 import { ShieldAlert, UserX, UserCheck, Key } from 'lucide-react';
 
-export default function AccountManager({ allUsers, onRefresh, showToast }: { allUsers: any[], onRefresh: () => void, showToast: (msg: string, type?: 'success' | 'error') => void }) {
+export default function AccountManager({ 
+  allUsers, 
+  onRefresh, 
+  showToast 
+}: { 
+  allUsers: any[], 
+  onRefresh: () => void, 
+  showToast: (message: string, type?: 'error' | 'success') => void 
+}) {
   
   // id 대신 characterName을 직접 받아 삭제하도록 수정
   async function handleAccountDelete(characterName: string) {

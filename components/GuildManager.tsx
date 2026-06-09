@@ -4,7 +4,15 @@ import { supabase } from '../app/supabase';
 import { motion } from 'framer-motion';
 import { Shield, Plus, Trash2, Home } from 'lucide-react';
 
-export default function GuildManager({ guilds, onRefresh, showToast }: { guilds: any[], onRefresh: () => void, showToast: (msg: string, type?: 'success' | 'error') => void }) {
+export default function GuildManager({ 
+  guilds, 
+  onRefresh, 
+  showToast 
+}: { 
+  guilds: any[], 
+  onRefresh: () => void, 
+  showToast: (message: string, type?: 'error' | 'success') => void 
+}) {
   const [guildName, setGuildName] = useState('');
 
   async function handleAddGuild(e: React.FormEvent) {
