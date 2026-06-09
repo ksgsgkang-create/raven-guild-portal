@@ -1,11 +1,18 @@
 'use client';
 import React, { useState, useMemo } from 'react';
-import { Users, Search, Filter, Shield, Swords, ShieldAlert, Target, ArrowUpDown } from 'lucide-react';
+import { Users, Search, Filter, Shield, ArrowUp, ArrowDown } from 'lucide-react';
 
 const classList = [
   '뱅가드', '버서커', '디스트로이어', '나이트레인저', '엘리멘탈리스트', 
   '디바인캐스터', '어쌔신', '데스브링어', '건슬링어', '워로드'
 ];
+
+type SortKey = 'name' | 'job' | 'power' | 'guild';
+type SortOrder = 'asc' | 'desc';
+interface SortConfig {
+  key: SortKey;
+  order: SortOrder;
+}
 
 export default function MemberStatus({ members, guilds }: { members: any[], guilds: any[] }) {
   // 검색 및 필터링 상태
@@ -13,12 +20,37 @@ export default function MemberStatus({ members, guilds }: { members: any[], guil
   const [filterClass, setFilterClass] = useState('');
   const [filterGuild, setFilterGuild] = useState('');
   
-  // [추가된 상세 검색 조건 예시] 전투력 범위 검색
-  const [minAtk, setMinAtk] = useState<number | ''>('');
-  const [minTotal, setMinTotal] = useState<number | ''>('');
-  
-  // 정렬 상태 (기본값: 합계 내림차순)
-  const [sortBy, setSortBy] = useState<'name' | 'stat' | 'atk'>('stat');
+  // 다중 복합 정렬 큐 상태 (클릭한 순서대로 정렬 조건 누적)
+  const [sortQueue, setSortQueue] = useState<SortConfig[]>([]);
+
+  // 정렬 버튼 클릭 핸들러 (없음 -> 오름차순 -> 내림차순 -> 없음)
+  const handleSortToggle = (key: SortKey) => {
+    setSortQueue(prev => {
+      const existingIndex = prev.findIndex(item => item.key === key);
+      
+      if (existingIndex === -1) {
+        // 새로 클릭 시 오름차순(asc) 추가
+        return [...prev, { key, order: 'asc' }];
+      } else if (prev[existingIndex].order === 'asc') {
+        // 이미 오름차순이면 내림차순(desc)으로 변경
+        const nextQueue = [...prev];
+        nextQueue[existingIndex] = { key, order: 'desc' };
+        return nextQueue;
+      } else {
+        // 이미 내림차순이면 해당 정렬 제거
+        return prev.filter(item => item.key !== key);
+      }
+    });
+  };
+
+  // 현재 정렬 조건 가져오기 편하게 맵으로 생성
+  const sortMap = useMemo(() => {
+    const map: Record<SortKey, SortConfig | null> = { name: null, job: null, power: null, guild: null };
+    sortQueue.forEach((item, index) => {
+      map[item.key] = { ...item };
+    });
+    return map;
+  }, [sortQueue]);
 
   const filteredMembers = useMemo(() => {
     return members.filter(m => {
@@ -32,25 +64,40 @@ export default function MemberStatus({ members, guilds }: { members: any[], guil
         matchGuild = m.guild_name === filterGuild;
       }
 
-      // 전투력 상세 필터 로직
-      const totalStats = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
-      const matchAtk = minAtk === '' || (m.atk || 0) >= minAtk;
-      const matchTotal = minTotal === '' || totalStats >= minTotal;
-
-      return matchName && matchClass && matchGuild && matchAtk && matchTotal;
+      return matchName && matchClass && matchGuild;
     }).sort((a, b) => {
-      const totalA = (a.atk || 0) + (a.def || 0) + (a.hit || 0);
-      const totalB = (b.atk || 0) + (b.def || 0) + (b.hit || 0);
-      
-      if (sortBy === 'name') return a.character_name.localeCompare(b.character_name);
-      if (sortBy === 'atk') return (b.atk || 0) - (a.atk || 0);
-      return totalB - totalA; // stat 기준 기본 내림차순
+      // sortQueue에 쌓인 순서대로 순차 비교
+      for (const sort of sortQueue) {
+        const { key, order } = sort;
+        const multiplier = order === 'asc' ? 1 : -1;
+
+        let comparison = 0;
+
+        if (key === 'name') {
+          comparison = a.character_name.localeCompare(b.character_name, 'ko-KR');
+        } else if (key === 'job') {
+          comparison = a.job_class.localeCompare(b.job_class, 'ko-KR');
+        } else if (key === 'guild') {
+          const guildA = a.guild_name || '';
+          const guildB = b.guild_name || '';
+          comparison = guildA.localeCompare(guildB, 'ko-KR');
+        } else if (key === 'power') {
+          const totalA = (a.atk || 0) + (a.def || 0) + (a.hit || 0);
+          const totalB = (b.atk || 0) + (b.def || 0) + (b.hit || 0);
+          comparison = totalA - totalB;
+        }
+
+        if (comparison !== 0) {
+          return comparison * multiplier;
+        }
+      }
+      return 0;
     });
-  }, [members, searchName, filterClass, filterGuild, minAtk, minTotal, sortBy]);
+  }, [members, searchName, filterClass, filterGuild, sortQueue]);
 
   return (
     <div className="space-y-6">
-      {/* 1. 상세 검색 & 필터 패널 (일반 유저용 고도화) */}
+      {/* 1. 상세 검색 & 필터 패널 */}
       <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800 shadow-xl space-y-4">
         <h3 className="text-sm font-bold text-sky-400 flex items-center gap-2">
           🔍 상세 검색 조건
@@ -94,67 +141,72 @@ export default function MemberStatus({ members, guilds }: { members: any[], guil
           </div>
         </div>
 
-        {/* 부가적인 상세 검색 조건 (스펙 기준 필터 및 정렬) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-800/60 items-center">
-          <div>
-            <label className="block text-[10px] text-slate-400 font-bold mb-1">최소 공격력</label>
-            <input 
-              type="number" 
-              value={minAtk} 
-              onChange={(e) => setMinAtk(e.target.value === '' ? '' : Number(e.target.value))}
-              placeholder="최소 공격력 입력"
-              className="w-full bg-slate-950 border border-slate-800 px-3 py-2.5 rounded-xl text-xs text-white outline-none"
-            />
+        {/* 다중 조합 정렬 버튼 패널 */}
+        <div className="pt-3 border-t border-slate-800/60 space-y-2">
+          <div className="flex justify-between items-center">
+            <label className="text-[10px] text-slate-400 font-bold">정렬 기준 (다중 선택 및 우선순위 조합 가능)</label>
+            {sortQueue.length > 0 && (
+              <button 
+                onClick={() => setSortQueue([])}
+                className="text-[10px] text-rose-400 hover:underline font-bold cursor-pointer"
+              >
+                정렬 초기화
+              </button>
+            )}
           </div>
-          <div>
-            <label className="block text-[10px] text-slate-400 font-bold mb-1">최소 종합 전투력</label>
-            <input 
-              type="number" 
-              value={minTotal} 
-              onChange={(e) => setMinTotal(e.target.value === '' ? '' : Number(e.target.value))}
-              placeholder="최소 종합 전투력 입력"
-              className="w-full bg-slate-950 border border-slate-800 px-3 py-2.5 rounded-xl text-xs text-white outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] text-slate-400 font-bold mb-1">정렬 기준</label>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setSortBy('stat')} 
-                className={`flex-1 py-2.5 rounded-xl font-bold text-[11px] cursor-pointer border ${sortBy === 'stat' ? 'bg-sky-600/20 border-sky-500 text-sky-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}
-              >
-                전투력 합계순
-              </button>
-              <button 
-                onClick={() => setSortBy('atk')} 
-                className={`flex-1 py-2.5 rounded-xl font-bold text-[11px] cursor-pointer border ${sortBy === 'atk' ? 'bg-red-950/40 border-red-800/50 text-red-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}
-              >
-                공격력순
-              </button>
-              <button 
-                onClick={() => setSortBy('name')} 
-                className={`flex-1 py-2.5 rounded-xl font-bold text-[11px] cursor-pointer border ${sortBy === 'name' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-950 border-slate-800 text-slate-400'}`}
-              >
-                이름순
-              </button>
-            </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(['name', 'job', 'power', 'guild'] as SortKey[]).map((key) => {
+              const isActive = !!sortMap[key];
+              const order = sortMap[key]?.order;
+              // 몇 번째 우선순위로 적용되었는지 인덱스 표시
+              const priority = sortQueue.findIndex(item => item.key === key);
+
+              const labelMap: Record<SortKey, string> = {
+                name: '이름순',
+                job: '직업순',
+                power: '전투력순',
+                guild: '길드순'
+              };
+
+              return (
+                <button 
+                  key={key}
+                  onClick={() => handleSortToggle(key)}
+                  className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs cursor-pointer border transition-all ${
+                    isActive 
+                      ? 'bg-sky-600/20 border-sky-500 text-sky-300' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  {labelMap[key]}
+                  {isActive && order === 'asc' && <ArrowUp size={14} className="text-sky-400" />}
+                  {isActive && order === 'desc' && <ArrowDown size={14} className="text-sky-400" />}
+                  {isActive && (
+                    <span className="bg-sky-500 text-slate-950 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black">
+                      {priority + 1}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* 2. 길드원 목록 리스트 (조회 전용) */}
+      {/* 2. 길드원 목록 리스트 */}
       <div className="bg-slate-900/80 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="text-sky-400" />
             <h2 className="text-xl font-black text-white">등록된 길드원 목록 ({filteredMembers.length}명)</h2>
           </div>
-          {(searchName || filterClass || filterGuild || minAtk !== '' || minTotal !== '') && (
+          {(searchName || filterClass || filterGuild) && (
             <button 
-              onClick={() => { setSearchName(''); setFilterClass(''); setFilterGuild(''); setMinAtk(''); setMinTotal(''); }}
+              onClick={() => { setSearchName(''); setFilterClass(''); setFilterGuild(''); }}
               className="text-[11px] text-sky-400 hover:underline font-semibold cursor-pointer"
             >
-              필터 및 검색 초기화
+              검색 및 필터 초기화
             </button>
           )}
         </div>
