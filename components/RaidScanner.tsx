@@ -222,7 +222,6 @@ export default function RaidScanner({ members = [], onRefresh }: RaidScannerProp
               <select 
                 value={selectedBoss} 
                 onChange={(e) => setSelectedBoss(e.target.value)} 
-                disabled={isAlreadyScanned}
                 className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 outline-none focus:border-amber-500 text-sm text-white disabled:opacity-50 cursor-pointer"
               >
                 {bossList.map(b => (
@@ -240,7 +239,6 @@ export default function RaidScanner({ members = [], onRefresh }: RaidScannerProp
                 type="date" 
                 value={raidDate} 
                 onChange={(e) => setRaidDate(e.target.value)} 
-                disabled={isAlreadyScanned}
                 className="w-full bg-slate-950 p-3 pl-10 rounded-xl border border-slate-800 outline-none focus:border-amber-500 text-sm text-white disabled:opacity-50 cursor-pointer" 
               />
             </div>

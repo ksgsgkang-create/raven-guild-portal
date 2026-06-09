@@ -22,14 +22,12 @@ export default function GuildManager({
       return;
     }
 
-    // 중복 검사 (g.name -> g.guild_name)
     const isExist = guilds.some(g => g.guild_name === guildName.trim());
     if (isExist) {
       showToast('이미 등록된 길드 이름입니다.', 'error');
       return;
     }
 
-    // name: guildName -> guild_name: guildName
     const { error } = await supabase.from('alliance_guilds').insert([{ guild_name: guildName.trim() }]);
     if (error) {
       showToast('길드 추가 실패: ' + error.message, 'error');
@@ -94,9 +92,7 @@ export default function GuildManager({
                   <Home size={18} />
                 </div>
                 <div>
-                  {/* g.name -> g.guild_name */}
                   <span className="font-bold text-white text-base">{g.guild_name}</span>
-                  <div className="text-[10px] text-slate-500 mt-1">등록 고유번호: {g.id}</div>
                 </div>
               </div>
               

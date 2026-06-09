@@ -2,7 +2,7 @@
 import React from 'react';
 import { supabase } from '../app/supabase';
 import { motion } from 'framer-motion';
-import { ShieldAlert, UserX, UserCheck, Key } from 'lucide-react';
+import { ShieldAlert, UserX, UserCheck, Key, RefreshCw } from 'lucide-react';
 
 export default function AccountManager({ 
   allUsers, 
@@ -14,17 +14,38 @@ export default function AccountManager({
   showToast: (message: string, type?: 'error' | 'success') => void 
 }) {
   
-  // id 대신 characterName을 직접 받아 삭제하도록 수정
+  // 계정 삭제 핸들러
   async function handleAccountDelete(characterName: string) {
     if (!confirm(`정말 "${characterName}" 님의 계정을 탈퇴(삭제)시키겠습니까?`)) return;
 
-    // 기본키인 character_name을 기준으로 삭제
     const { error } = await supabase.from('user_accounts').delete().eq('character_name', characterName);
     
     if (error) {
       showToast('계정 삭제 실패: ' + error.message, 'error');
     } else {
       showToast(`"${characterName}" 님 계정이 삭제(탈퇴)되었습니다.`);
+      onRefresh();
+    }
+  }
+
+  // 권한 변경(토글) 핸들러 추가
+  async function handleToggleAdmin(characterName: string, currentIsAdmin: boolean) {
+    const newAdminStatus = !currentIsAdmin;
+    const confirmMsg = newAdminStatus 
+      ? `"${characterName}" 님을 관리자 권한으로 승급시키겠습니까?` 
+      : `"${characterName}" 님을 일반 길드원으로 변경(권한 해제)하시겠습니까?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    const { error } = await supabase
+      .from('user_accounts')
+      .update({ is_admin: newAdminStatus })
+      .eq('character_name', characterName);
+    
+    if (error) {
+      showToast('권한 변경 실패: ' + error.message, 'error');
+    } else {
+      showToast(`"${characterName}" 님의 권한이 성공적으로 변경되었습니다.`);
       onRefresh();
     }
   }
@@ -42,7 +63,7 @@ export default function AccountManager({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {allUsers.map((u, idx) => (
           <motion.div 
-            key={u.character_name} // 고유값인 캐릭터명을 key로 사용
+            key={u.character_name}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.05 }}
@@ -66,12 +87,23 @@ export default function AccountManager({
               </div>
             </div>
 
-            <button 
-              onClick={() => handleAccountDelete(u.character_name)} // 캐릭터명 전달
-              className="bg-red-950/40 hover:bg-red-900/50 border border-red-800/60 text-red-300 p-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 text-xs font-bold"
-            >
-              <UserX size={16} /> 강제 탈퇴
-            </button>
+            <div className="flex items-center gap-2">
+              {/* 권한 변경 버튼 추가 */}
+              <button
+                onClick={() => handleToggleAdmin(u.character_name, u.is_admin)}
+                title={u.is_admin ? '일반 길드원으로 강등' : '관리자로 승급'}
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 p-3 rounded-xl cursor-pointer transition-all flex items-center justify-center"
+              >
+                <RefreshCw size={16} />
+              </button>
+
+              <button 
+                onClick={() => handleAccountDelete(u.character_name)}
+                className="bg-red-950/40 hover:bg-red-900/50 border border-red-800/60 text-red-300 p-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 text-xs font-bold"
+              >
+                <UserX size={16} /> 강제 탈퇴
+              </button>
+            </div>
           </motion.div>
         ))}
       </div>
