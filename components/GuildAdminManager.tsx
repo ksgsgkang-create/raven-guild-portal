@@ -9,7 +9,19 @@ interface Props {
   onRefresh: () => void;
 }
 
-export default function GuildAdminManager({ guilds, allUsers, isAdmin, onRefresh }: Props) {
+export default function GuildAdminManager({ 
+  guilds, 
+  allUsers, 
+  isAdmin, 
+  onRefresh, 
+  showToast 
+}: { 
+  guilds: any[], 
+  allUsers: any[], 
+  isAdmin: any, 
+  onRefresh: () => void, 
+  showToast: (message: string, type?: 'error' | 'success') => void 
+}) {
   const [newGuild, setNewGuild] = useState('');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeContent, setNoticeContent] = useState('');
