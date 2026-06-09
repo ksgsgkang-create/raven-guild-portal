@@ -20,15 +20,13 @@ const classList = [
 export default function MemberManager({ 
   members, 
   guilds, 
-  allUsers, // page.tsx에서 대장님이 넘겨주는 변수명 대응
-  isAdmin, 
+  currentUser, 
   onRefresh, 
   showToast 
 }: { 
-  members?: any[], 
+  members: any[], 
   guilds: any[], 
-  allUsers?: any[], 
-  isAdmin?: any, 
+  currentUser: any, 
   onRefresh: () => void, 
   showToast: (message: string, type?: 'error' | 'success') => void 
 }) {
