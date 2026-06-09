@@ -1,6 +1,7 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import { Trophy, CalendarDays, Swords, BarChart3, Crown, Award, Calendar, Shield } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from '../app/supabase';
+import { Trophy, CalendarDays, Swords, BarChart3, Crown, Award, Calendar, Shield, Users, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 // 고도화용 Recharts 차트 컴포넌트 임포트
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
@@ -9,10 +10,67 @@ const COLORS = ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185', '#34d399'
 
 export default function ActivityRanking({ members }: { members: any[] }) {
   const [subTab, setSubTab] = useState<'combat' | 'boss' | 'stats'>('combat');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  
+  // 기본 조회 기간을 이번 달 1일부터 오늘까지로 스마트 세팅
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
-  // 1. 전투력 랭킹 연산 (동점자 발생 시 공격력 -> 명중도 순으로 2, 3차 정렬 기준 고도화)
+  // DB에서 실시간 긁어올 원본 로그와 보스 배점 세팅 상태
+  const [rawRaidLogs, setRawRaidLogs] = useState<any[]>([]);
+  const [bossSettings, setBossSettings] = useState<Record<string, number>>({});
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  // 클릭하여 이력을 조회할 유저의 캐릭터명 선택 상태
+  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
+
+  // 1. 초기 보스 배점 기준 세팅 로드
+  useEffect(() => {
+    async function loadBossSettings() {
+      const { data } = await supabase.from('boss_settings').select('*');
+      if (data) {
+        const mapping: Record<string, number> = {};
+        data.forEach(b => {
+          mapping[b.boss_name] = b.score_multiplier;
+        });
+        setBossSettings(mapping);
+      }
+    }
+    loadBossSettings();
+  }, []);
+
+  // 2. 지정 기간이 변경될 때마다 Supabase에서 보스 레이드 로그 수집
+  useEffect(() => {
+    async function loadRaidLogs() {
+      if (!startDate || !endDate) return;
+      setIsLoadingLogs(true);
+      
+      // 날짜 필터링을 00:00:00 ~ 23:59:59 규격으로 포맷팅
+      const startIso = `${startDate}T00:00:00.000Z`;
+      const endIso = `${endDate}T23:59:59.999Z`;
+
+      const { data, error } = await supabase
+        .from('boss_raid_logs')
+        .select('*')
+        .gte('raided_at', startIso)
+        .lte('raided_at', endIso)
+        .order('raided_at', { ascending: false });
+
+      if (!error && data) {
+        setRawRaidLogs(data);
+      }
+      setIsLoadingLogs(false);
+    }
+    if (subTab === 'boss') {
+      loadRaidLogs();
+    }
+  }, [startDate, endDate, subTab]);
+
+  // 3. 전투력 랭킹 연산 (기존 로직 유지)
   const combatRanking = useMemo(() => {
     return [...members]
       .map(m => {
@@ -26,19 +84,45 @@ export default function ActivityRanking({ members }: { members: any[] }) {
       });
   }, [members]);
 
-  // 2. 기간별 보스참여 랭킹 연산
+  // 4. [고도화 핵심] 테이블 결합 기반 실시간 보스 참여 기여도 랭킹 연산
   const bossRanking = useMemo(() => {
-    if (!startDate || !endDate) {
-      return [...members]
-        .map(m => ({ ...m, bossCount: m.boss_count || Math.floor(Math.random() * 20) }))
-        .sort((a, b) => b.bossCount - a.bossCount);
-    }
-    return [...members]
-      .map(m => ({ ...m, bossCount: Math.floor(Math.random() * 12) }))
-      .sort((a, b) => b.bossCount - a.bossCount);
-  }, [members, startDate, endDate]);
+    // 먼저 모든 멤버 기반의 기본 틀 생성
+    const rankingMap: Record<string, { character_name: string; guild_name: string; totalScore: number; bossCount: number; id: any }> = {};
+    
+    members.forEach(m => {
+      rankingMap[m.character_name.trim()] = {
+        id: m.id,
+        character_name: m.character_name,
+        guild_name: m.guild_name || '무소속',
+        totalScore: 0,
+        bossCount: 0
+      };
+    });
 
-  // 3. Recharts 라이브러리용 데이터 정제 파트
+    // 수집된 원본 로그를 돌며 점수 가중치 및 횟수 가산 합산 연산
+    rawRaidLogs.forEach(log => {
+      const charName = log.character_name.trim();
+      if (rankingMap[charName]) {
+        const multiplier = bossSettings[log.boss_name] ?? 10; // 배점 설정 안 되어 있으면 기본 10점
+        rankingMap[charName].totalScore += multiplier;
+        rankingMap[charName].bossCount += 1;
+      }
+    });
+
+    // 객체를 배열로 변환 후 총 기여도 높은 순 -> 참여 횟수 많은 순 정렬
+    return Object.values(rankingMap).sort((a, b) => {
+      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+      return b.bossCount - a.bossCount;
+    });
+  }, [members, rawRaidLogs, bossSettings]);
+
+  // 5. 클릭된 유저의 지정 기간 내 상세 토벌 시간표 추출 데이터
+  const characterDetails = useMemo(() => {
+    if (!selectedCharacter) return [];
+    return rawRaidLogs.filter(log => log.character_name.trim() === selectedCharacter.trim());
+  }, [selectedCharacter, rawRaidLogs]);
+
+  // 6. Recharts 라이브러리용 데이터 정제 파트 (기존 유지)
   const statsData = useMemo(() => {
     if (members.length === 0) return { classChartData: [], guildChartData: [], topAtk: null, topDef: null, topHit: null };
 
@@ -49,10 +133,8 @@ export default function ActivityRanking({ members }: { members: any[] }) {
     let topHit = members[0];
 
     members.forEach(m => {
-      // 직업 분포 카운트
       if (m.job_class) classCount[m.job_class] = (classCount[m.job_class] || 0) + 1;
       
-      // 길드별 스펙 합산
       if (m.guild_name) {
         const score = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
         if (!guildStats[m.guild_name]) guildStats[m.guild_name] = { total: 0, count: 0 };
@@ -60,19 +142,16 @@ export default function ActivityRanking({ members }: { members: any[] }) {
         guildStats[m.guild_name].count += 1;
       }
 
-      // 최강자 추적
       if ((m.atk || 0) > (topAtk.atk || 0)) topAtk = m;
       if ((m.def || 0) > (topDef.def || 0)) topDef = m;
       if ((m.hit || 0) > (topHit.hit || 0)) topHit = m;
     });
 
-    // Recharts 포맷으로 변환 (원형 차트용)
     const classChartData = Object.keys(classCount).map(name => ({
       name,
       value: classCount[name]
     }));
 
-    // Recharts 포맷으로 변환 (막대 차트용)
     const guildChartData = Object.keys(guildStats).map(name => ({
       name,
       '평균 전투력': Math.round(guildStats[name].total / guildStats[name].count)
@@ -89,7 +168,7 @@ export default function ActivityRanking({ members }: { members: any[] }) {
         <Trophy className="text-amber-500" size={36} />
         <div>
           <h2 className="text-2xl font-black text-white">연합 활동 랭킹 Portal</h2>
-          <p className="text-xs text-slate-400 mt-1">고도화된 차트 엔진 기반으로 스펙 및 참여율 통계를 분석합니다.</p>
+          <p className="text-xs text-slate-400 mt-1">실시간 보스 세팅 데이터베이스와 매칭 연산하여 순위를 정산합니다.</p>
         </div>
       </div>
 
@@ -122,32 +201,104 @@ export default function ActivityRanking({ members }: { members: any[] }) {
           </div>
         )}
 
-        {/* TAB 2: 기간별 보스참여 랭킹 */}
+        {/* TAB 2: 기간별 보스참여 랭킹 (완벽 실시간화) */}
         {subTab === 'boss' && (
           <div className="space-y-6">
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-slate-400 font-bold"><Calendar size={16} className="text-sky-400" /><span>조회 기간 설정 :</span></div>
               <div className="flex items-center gap-2">
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold text-white outline-none" />
+                <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setSelectedCharacter(null); }} className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold text-white outline-none focus:border-sky-500" />
                 <span className="text-slate-500 text-xs">~</span>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold text-white outline-none" />
+                <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setSelectedCharacter(null); }} className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold text-white outline-none focus:border-sky-500" />
               </div>
             </div>
-            <div className="space-y-2.5">
-              <div className="text-xs text-slate-400 font-semibold flex justify-between px-4"><span>길드원명 / 소속</span><span>지정 기간 보스 참여 횟수</span></div>
-              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                {bossRanking.map((m, idx) => (
-                  <div key={m.id} className="bg-slate-800/20 border border-slate-800/60 p-4 rounded-xl flex items-center justify-between hover:border-slate-700">
-                    <div className="flex items-center gap-4"><span className="text-slate-500 text-xs font-bold w-5 text-center">{idx + 1}</span><div><span className="font-bold text-white text-sm">{m.character_name}</span><span className="text-[10px] text-slate-400 ml-3 bg-amber-950/40 text-amber-400 border border-amber-900/40 px-2 py-0.5 rounded">{m.guild_name || '무소속'}</span></div></div>
-                    <div className="text-right"><span className="text-sky-400 font-mono font-black text-sm bg-sky-950/40 border border-sky-900/40 px-3 py-1 rounded-lg">{m.bossCount} 회 참여</span></div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+              {/* 왼쪽 2개 칸: 기여도 랭킹 리스트 보드 */}
+              <div className="lg:col-span-2 space-y-3">
+                <div className="text-xs text-slate-400 font-semibold flex justify-between px-4">
+                  <span>유저 이름 / 연합 길드 (클릭 시 상세이력 개방)</span>
+                  <div className="flex gap-12 pr-4"><span>참여횟수</span><span>획득 점수</span></div>
+                </div>
+                
+                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                  {isLoadingLogs ? (
+                    <div className="text-center text-slate-500 text-xs py-8 animate-pulse">Supabase 데이터 가공 및 연합 랭킹 집계 중...</div>
+                  ) : bossRanking.map((m, idx) => (
+                    <div 
+                      key={m.id || m.character_name} 
+                      onClick={() => setSelectedCharacter(selectedCharacter === m.character_name ? null : m.character_name)}
+                      className={`border p-4 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-slate-800/40
+                        ${selectedCharacter === m.character_name ? 'bg-sky-950/20 border-sky-500/60 shadow-md shadow-sky-900/10' : 'bg-slate-800/20 border-slate-800/60'}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className="text-slate-500 text-xs font-bold w-5 text-center">{idx + 1}</span>
+                        <div>
+                          <span className="font-bold text-white text-sm flex items-center gap-2">
+                            {m.character_name}
+                            {selectedCharacter === m.character_name ? <ChevronUp size={14} className="text-sky-400" /> : <ChevronDown size={14} className="text-slate-500" />}
+                          </span>
+                          <span className="text-[10px] text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded mt-1 inline-block">{m.guild_name}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-10 text-right pr-2">
+                        <span className="text-slate-300 font-mono text-xs w-12 text-center bg-slate-950 px-2 py-1 rounded border border-slate-800">{m.bossCount}회</span>
+                        <span className="text-emerald-400 font-mono font-black text-sm min-w-[60px] text-right">{m.totalScore.toLocaleString()} 점</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 오른쪽 1개 칸: 클릭한 유저의 기간별 타임라인 상세 판넬 */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4 lg:sticky lg:top-4 min-h-[300px]">
+                <h3 className="text-xs font-bold text-sky-400 flex items-center gap-1.5 border-b border-slate-800 pb-3">
+                  <Users size={14} /> 토벌 상세 로그 분석기
+                </h3>
+                
+                {selectedCharacter ? (
+                  <div className="space-y-3">
+                    <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                      <div className="text-[11px] text-slate-400 font-bold">대상 대원</div>
+                      <div className="text-sm font-black text-white mt-0.5">{selectedCharacter}</div>
+                    </div>
+                    
+                    <div className="text-[11px] text-slate-400 font-bold flex items-center gap-1"><Clock size={12}/> 지정 기간 내 상세 타임라인 ({characterDetails.length}건)</div>
+                    
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 text-xs">
+                      {characterDetails.map((log) => {
+                        const score = bossSettings[log.boss_name] ?? 10;
+                        return (
+                          <div key={log.id} className="bg-slate-900/50 border border-slate-800 p-2.5 rounded-lg flex justify-between items-center hover:border-slate-700">
+                            <div>
+                              <p className="font-bold text-slate-200">{log.boss_name}</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{new Date(log.raided_at).toLocaleDateString('ko-KR')}</p>
+                            </div>
+                            <span className="text-emerald-400 font-mono font-bold bg-emerald-950/30 border border-emerald-900/30 px-2 py-0.5 rounded text-[10px]">
+                              +{score}점
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {characterDetails.length === 0 && (
+                        <div className="text-center text-slate-600 italic py-8 text-[11px]">해당 기간 내 처치 참여 기록이 없습니다.</div>
+                      )}
+                    </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="h-48 flex flex-col items-center justify-center text-center p-4">
+                    <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 text-slate-500 mb-2 font-mono font-bold">?</div>
+                    <p className="text-xs text-slate-500 font-medium">좌측 랭킹 리스트에서<br />길드원을 클릭하면 상세 토벌 이력 날짜와 보스 내역이 여기에 정밀 표기됩니다.</p>
+                  </div>
+                )}
               </div>
             </div>
+
           </div>
         )}
 
-        {/* TAB 3: 라이브러리를 활용한 시각화 통계 (고도화 핵심 파트) */}
+        {/* TAB 3: 라이브러리를 활용한 시각화 통계 */}
         {subTab === 'stats' && (
           <div className="space-y-8">
             {/* 최강자 상단 카드보드 */}

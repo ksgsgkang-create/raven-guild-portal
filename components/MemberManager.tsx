@@ -1,8 +1,8 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { supabase } from '../app/supabase';
 import { motion } from 'framer-motion';
-import { UserPlus, Trash2, Edit2, Check, X, Shield, Users, Swords, ShieldAlert, Target } from 'lucide-react';
+import { UserPlus, Trash2, Edit2, Check, X, Shield, Users, Swords, ShieldAlert, Target, Search, Filter, Lock } from 'lucide-react';
 
 const classList = [
   '뱅가드', 
@@ -30,22 +30,37 @@ export default function MemberManager({
   onRefresh: () => void, 
   showToast: (message: string, type?: 'error' | 'success') => void 
 }) {
+  // [권한 에러 해결] DB의 칼럼 구조(is_admin: boolean)에 맞추어 권한 체크 로직을 수정합니다.
+  const isAdmin = currentUser?.is_admin === true;
+
+  // 신규 등록 폼 상태 관리
   const [characterName, setCharacterName] = useState('');
   const [className, setClassName] = useState('');
   const [selectedGuild, setSelectedGuild] = useState('');
-  const [atk, setAtk] = useState<number>(0);
-  const [def, setDef] = useState<number>(0);
-  const [hit, setHit] = useState<number>(0);
+  const [atk, setAtk] = useState<number | ''>('');
+  const [def, setDef] = useState<number | ''>('');
+  const [hit, setHit] = useState<number | ''>('');
   
+  // 수정(Editing) 모드 상태 관리
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editClassName, setEditClassName] = useState('');
   const [editGuild, setEditGuild] = useState('');
-  const [editAtk, setEditAtk] = useState<number>(0);
-  const [editDef, setEditDef] = useState<number>(0);
-  const [editHit, setEditHit] = useState<number>(0);
+  const [editAtk, setEditAtk] = useState<number | ''>('');
+  const [editDef, setEditDef] = useState<number | ''>('');
+  const [editHit, setEditHit] = useState<number | ''>('');
 
+  // 다중 검색 및 필터링 상태 조건
+  const [searchName, setSearchName] = useState('');
+  const [filterClass, setFilterClass] = useState('');
+  const [filterGuild, setFilterGuild] = useState('');
+
+  // 신규 등록 핸들러
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
+    if (!isAdmin) {
+      showToast('권한이 없습니다. 관리자만 등록할 수 있습니다.', 'error');
+      return;
+    }
     if (!characterName) {
       showToast('캐릭터 명을 입력해주세요.', 'error');
       return;
@@ -55,16 +70,15 @@ export default function MemberManager({
       return;
     }
 
-    // [외래키 에러 해결] 길드를 선택하지 않았거나 공백이면 빈 문자열 대신 null을 대입합니다.
     const finalGuildName = selectedGuild.trim() === '' ? null : selectedGuild;
 
     const { error } = await supabase.from('members').insert([{
       character_name: characterName,
       job_class: className,
       guild_name: finalGuildName,
-      atk: Number(atk),
-      def: Number(def),
-      hit: Number(hit)
+      atk: Number(atk || 0),
+      def: Number(def || 0),
+      hit: Number(hit || 0)
     }]);
 
     if (error) {
@@ -73,15 +87,20 @@ export default function MemberManager({
       setCharacterName('');
       setClassName('');
       setSelectedGuild('');
-      setAtk(0);
-      setDef(0);
-      setHit(0);
+      setAtk('');
+      setDef('');
+      setHit('');
       onRefresh();
       showToast('신규 길드원이 성공적으로 등록되었습니다.');
     }
   }
 
+  // 삭제 핸들러
   async function handleDelete(id: number) {
+    if (!isAdmin) {
+      showToast('권한이 없습니다. 관리자만 삭제할 수 있습니다.', 'error');
+      return;
+    }
     if (!confirm('정말 삭제하시겠습니까?')) return;
     const { error } = await supabase.from('members').delete().eq('id', id);
     if (error) {
@@ -92,26 +111,31 @@ export default function MemberManager({
     }
   }
 
+  // 수정 모드 돌입
   function handleEditStart(member: any) {
     setEditingId(member.id);
     setEditClassName(member.job_class || ''); 
     setEditGuild(member.guild_name || '');
-    setEditAtk(member.atk || 0);
-    setEditDef(member.def || 0);
-    setEditHit(member.hit || 0);
+    setEditAtk(member.atk === 0 ? '' : member.atk ?? '');
+    setEditDef(member.def === 0 ? '' : member.def ?? '');
+    setEditHit(member.hit === 0 ? '' : member.hit ?? '');
   }
 
+  // 수정사항 저장 핸들러
   async function handleSave(id: number) {
-    // [외래키 에러 해결] 길드 수정 시 공백 상태라면 Supabase 외래키 제약조건 통과를 위해 null로 매핑합니다.
+    if (!isAdmin) {
+      showToast('권한이 없습니다.', 'error');
+      return;
+    }
     const finalGuildName = editGuild.trim() === '' ? null : editGuild;
 
     const { error } = await supabase.from('members')
       .update({ 
         job_class: editClassName, 
         guild_name: finalGuildName, 
-        atk: Number(editAtk),
-        def: Number(editDef),
-        hit: Number(editHit)
+        atk: Number(editAtk || 0),
+        def: Number(editDef || 0),
+        hit: Number(editHit || 0)
       })
       .eq('id', id);
 
@@ -124,104 +148,180 @@ export default function MemberManager({
     }
   }
 
+  // 다중 필터 및 검색 정밀 정제 연산 파트
+  const filteredMembers = useMemo(() => {
+    return members.filter(m => {
+      const matchName = m.character_name.toLowerCase().includes(searchName.toLowerCase().trim());
+      const matchClass = filterClass === '' || m.job_class === filterClass;
+      
+      let matchGuild = true;
+      if (filterGuild === 'none') {
+        matchGuild = !m.guild_name;
+      } else if (filterGuild !== '') {
+        matchGuild = m.guild_name === filterGuild;
+      }
+
+      return matchName && matchClass && matchGuild;
+    });
+  }, [members, searchName, filterClass, filterGuild]);
+
   return (
     <div className="space-y-8">
-      {/* 등록 폼 */}
-      <motion.form 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        onSubmit={handleAdd} 
-        className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl space-y-4"
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1">캐릭터 명</label>
-            <input 
-              value={characterName} 
-              onChange={(e) => setCharacterName(e.target.value)} 
-              placeholder="이름 입력" 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
-            />
+      
+      {/* 1. 신규 등록 폼 */}
+      {isAdmin ? (
+        <motion.form 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          onSubmit={handleAdd} 
+          className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl space-y-4"
+        >
+          <div className="text-xs font-black text-sky-400 flex items-center gap-1.5 mb-1">
+            <UserPlus size={14} /> 신규 인원 연합 데이터베이스 등록 (관리자 권한)
           </div>
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1">직업 선택</label>
-            <select 
-              value={className} 
-              onChange={(e) => setClassName(e.target.value)} 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white"
-            >
-              <option value="">직업을 선택하세요</option>
-              {classList.map((cls) => (
-                <option key={cls} value={cls}>{cls}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1">캐릭터 명</label>
+              <input 
+                value={characterName} 
+                onChange={(e) => setCharacterName(e.target.value)} 
+                placeholder="이름 입력" 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1">직업 선택</label>
+              <select 
+                value={className} 
+                onChange={(e) => setClassName(e.target.value)} 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white cursor-pointer"
+              >
+                <option value="">직업을 선택하세요</option>
+                {classList.map((cls) => (
+                  <option key={cls} value={cls}>{cls}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1">소속 길드</label>
+              <select 
+                value={selectedGuild} 
+                onChange={(e) => setSelectedGuild(e.target.value)} 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white cursor-pointer"
+              >
+                <option value="">무소속 (선택 안 함)</option>
+                {guilds.map((g) => (
+                  <option key={g.id} value={g.guild_name}>{g.guild_name}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1">소속 길드</label>
-            <select 
-              value={selectedGuild} 
-              onChange={(e) => setSelectedGuild(e.target.value)} 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white"
-            >
-              <option value="">무소속 (선택 안 함)</option>
-              {guilds.map((g) => (
-                <option key={g.id} value={g.guild_name}>{g.guild_name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
-              <Swords size={12} className="text-red-400" /> 공격력
-            </label>
-            <input 
-              type="number"
-              value={atk || ''} 
-              onChange={(e) => setAtk(Number(e.target.value))} 
-              placeholder="0" 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
-            />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
+                <Swords size={12} className="text-red-400" /> 공격력
+              </label>
+              <input 
+                type="number"
+                value={atk} 
+                onChange={(e) => setAtk(e.target.value === '' ? '' : Number(e.target.value))} 
+                placeholder="0" 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
+                <ShieldAlert size={12} className="text-blue-400" /> 방어력
+              </label>
+              <input 
+                type="number"
+                value={def} 
+                onChange={(e) => setDef(e.target.value === '' ? '' : Number(e.target.value))} 
+                placeholder="0" 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
+                <Target size={12} className="text-emerald-400" /> 명중도
+              </label>
+              <input 
+                type="number"
+                value={hit} 
+                onChange={(e) => setHit(e.target.value === '' ? '' : Number(e.target.value))} 
+                placeholder="0" 
+                className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
+              />
+            </div>
+            <button className="bg-sky-600 hover:bg-sky-500 p-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm cursor-pointer transition-all h-[46px]">
+              <UserPlus size={18} /> 신규 등록
+            </button>
           </div>
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
-              <ShieldAlert size={12} className="text-blue-400" /> 방어력
-            </label>
-            <input 
-              type="number"
-              value={def || ''} 
-              onChange={(e) => setDef(Number(e.target.value))} 
-              placeholder="0" 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 font-bold mb-1 flex items-center gap-1">
-              <Target size={12} className="text-emerald-400" /> 명중도
-            </label>
-            <input 
-              type="number"
-              value={hit || ''} 
-              onChange={(e) => setHit(Number(e.target.value))} 
-              placeholder="0" 
-              className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm text-white" 
-            />
-          </div>
-          <button className="bg-sky-600 hover:bg-sky-500 p-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm cursor-pointer transition-all h-[46px]">
-            <UserPlus size={18} /> 신규 등록
-          </button>
+        </motion.form>
+      ) : (
+        <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800 text-slate-400 text-xs flex items-center gap-2">
+          <Lock size={14} className="text-amber-500" />
+          <span>현재 <strong>일반 회원 조회 모드</strong>입니다. 명부 편집 및 등록은 관리자 마스터 계정만 가능합니다.</span>
         </div>
-      </motion.form>
+      )}
 
-      {/* 목록 리스트 */}
+      {/* 2. 다중 검색/필터 패널 */}
+      <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="relative">
+          <Search className="absolute left-3.5 top-3.5 text-slate-500" size={16} />
+          <input 
+            type="text"
+            value={searchName}
+            onChange={(e) => setSearchName(e.target.value)}
+            placeholder="캐릭터 이름 검색..."
+            className="w-full bg-slate-900 border border-slate-800 pl-10 pr-3 py-2.5 rounded-xl text-xs font-semibold text-white outline-none focus:border-slate-700"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-slate-500 shrink-0" />
+          <select
+            value={filterClass}
+            onChange={(e) => setFilterClass(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-300 outline-none cursor-pointer"
+          >
+            <option value="">모든 직업 필터</option>
+            {classList.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-slate-500 shrink-0" />
+          <select
+            value={filterGuild}
+            onChange={(e) => setFilterGuild(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-300 outline-none cursor-pointer"
+          >
+            <option value="">모든 길드 필터</option>
+            <option value="none">무소속 단원</option>
+            {guilds.map(g => <option key={g.id} value={g.guild_name}>{g.guild_name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* 3. 목록 리스트 */}
       <div className="bg-slate-900/80 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
-          <Users className="text-sky-400" />
-          <h2 className="text-xl font-black text-white">등록된 길드원 목록 ({members.length}명)</h2>
+        <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="text-sky-400" />
+            <h2 className="text-xl font-black text-white">등록된 길드원 목록 ({filteredMembers.length}명)</h2>
+          </div>
+          {(searchName || filterClass || filterGuild) && (
+            <button 
+              onClick={() => { setSearchName(''); setFilterClass(''); setFilterGuild(''); }}
+              className="text-[11px] text-sky-400 hover:underline font-semibold cursor-pointer"
+            >
+              필터 초기화
+            </button>
+          )}
         </div>
+        
         <div className="divide-y divide-slate-800">
-          {members.map((m) => {
+          {filteredMembers.map((m) => {
             const totalStats = (m.atk || 0) + (m.def || 0) + (m.hit || 0);
 
             return (
@@ -237,7 +337,7 @@ export default function MemberManager({
                         <select 
                           value={editClassName} 
                           onChange={(e) => setEditClassName(e.target.value)} 
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs w-full outline-none text-white"
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs w-full outline-none text-white cursor-pointer"
                         >
                           {classList.map((cls) => (
                             <option key={cls} value={cls}>{cls}</option>
@@ -249,7 +349,7 @@ export default function MemberManager({
                         <select 
                           value={editGuild} 
                           onChange={(e) => setEditGuild(e.target.value)} 
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs w-full outline-none text-white"
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs w-full outline-none text-white cursor-pointer"
                         >
                           <option value="">무소속 (선택 안 함)</option>
                           {guilds.map((g) => (
@@ -262,7 +362,7 @@ export default function MemberManager({
                         <input 
                           type="number" 
                           value={editAtk} 
-                          onChange={(e) => setEditAtk(Number(e.target.value))}
+                          onChange={(e) => setEditAtk(e.target.value === '' ? '' : Number(e.target.value))}
                           className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs w-full text-white"
                         />
                       </div>
@@ -271,7 +371,7 @@ export default function MemberManager({
                         <input 
                           type="number" 
                           value={editDef} 
-                          onChange={(e) => setEditDef(Number(e.target.value))}
+                          onChange={(e) => setEditDef(e.target.value === '' ? '' : Number(e.target.value))}
                           className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs w-full text-white"
                         />
                       </div>
@@ -280,13 +380,13 @@ export default function MemberManager({
                         <input 
                           type="number" 
                           value={editHit} 
-                          onChange={(e) => setEditHit(Number(e.target.value))}
+                          onChange={(e) => setEditHit(e.target.value === '' ? '' : Number(e.target.value))}
                           className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs w-full text-white"
                         />
                       </div>
                     </div>
                     <div className="text-xs text-amber-400 font-bold">
-                      예상 합계: {(Number(editAtk) + Number(editDef) + Number(editHit)).toLocaleString()}
+                      예상 합계: {(Number(editAtk || 0) + Number(editDef || 0) + Number(editHit || 0)).toLocaleString()}
                     </div>
                   </div>
                 ) : (
@@ -318,22 +418,31 @@ export default function MemberManager({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 self-end lg:self-center">
-                  {editingId === m.id ? (
-                    <>
-                      <button onClick={() => handleSave(m.id)} className="bg-emerald-600 hover:bg-emerald-500 p-2.5 rounded-xl cursor-pointer text-white"><Check size={18} /></button>
-                      <button onClick={() => setEditingId(null)} className="bg-slate-700 hover:bg-slate-600 p-2.5 rounded-xl cursor-pointer text-white"><X size={18} /></button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => handleEditStart(m)} className="bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 p-2.5 rounded-xl cursor-pointer border border-sky-500/30"><Edit2 size={18} /></button>
-                      <button onClick={() => handleDelete(m.id)} className="bg-red-950/40 hover:bg-red-900/40 text-red-400 p-2.5 rounded-xl cursor-pointer border border-red-800/30"><Trash2 size={18} /></button>
-                    </>
-                  )}
-                </div>
+                {/* 관리자에게만 제어 액션 버튼 노출 */}
+                {isAdmin && (
+                  <div className="flex items-center gap-2 self-end lg:self-center">
+                    {editingId === m.id ? (
+                      <>
+                        <button onClick={() => handleSave(m.id)} className="bg-emerald-600 hover:bg-emerald-500 p-2.5 rounded-xl cursor-pointer text-white"><Check size={18} /></button>
+                        <button onClick={() => setEditingId(null)} className="bg-slate-700 hover:bg-slate-600 p-2.5 rounded-xl cursor-pointer text-white"><X size={18} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => handleEditStart(m)} className="bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 p-2.5 rounded-xl cursor-pointer border border-sky-500/30"><Edit2 size={18} /></button>
+                        <button onClick={() => handleDelete(m.id)} className="bg-red-950/40 hover:bg-red-900/40 text-red-400 p-2.5 rounded-xl cursor-pointer border border-red-800/30"><Trash2 size={18} /></button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
+
+          {filteredMembers.length === 0 && (
+            <div className="text-center text-slate-500 py-12 text-sm italic">
+              조건에 부합하는 연합 대원이 존재하지 않습니다.
+            </div>
+          )}
         </div>
       </div>
     </div>
