@@ -4,14 +4,13 @@ import { supabase } from '../app/supabase';
 import { MessageSquare, Send, User, Calendar } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export default function FreeBoard({ currentUser }: { currentUser: any }) {
+export default function FreeBoard({ currentUser, showToast }: { currentUser: any, showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [commentInputs, setCommentInputs] = useState<{[key: number]: string}>({});
 
   async function fetchPosts() {
-    // 게시글과 댓글을 함께 가져옵니다
     const { data } = await supabase
       .from('posts')
       .select('*, comments(*)')
@@ -21,9 +20,13 @@ export default function FreeBoard({ currentUser }: { currentUser: any }) {
 
   async function handlePostSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title || !content) return;
+    if (!title || !content) {
+      showToast('제목과 내용을 입력해주세요.', 'error');
+      return;
+    }
     await supabase.from('posts').insert([{ author_name: currentUser.character_name, title, content }]);
     setTitle(''); setContent(''); fetchPosts();
+    showToast('게시글이 성공적으로 등록되었습니다.');
   }
 
   async function handleCommentSubmit(postId: number) {
@@ -38,13 +41,13 @@ export default function FreeBoard({ currentUser }: { currentUser: any }) {
 
     setCommentInputs({...commentInputs, [postId]: ''});
     fetchPosts();
+    showToast('댓글이 등록되었습니다.');
   }
 
   useEffect(() => { fetchPosts(); }, []);
 
   return (
     <div className="space-y-8 pb-20">
-      {/* 글쓰기 영역 */}
       <motion.form 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -71,7 +74,6 @@ export default function FreeBoard({ currentUser }: { currentUser: any }) {
         </div>
       </motion.form>
 
-      {/* 게시글 목록 */}
       <div className="space-y-6">
         {posts.map((p, idx) => (
           <motion.div 
@@ -94,7 +96,6 @@ export default function FreeBoard({ currentUser }: { currentUser: any }) {
               <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{p.content}</p>
             </div>
 
-            {/* 댓글 영역 */}
             <div className="bg-slate-950/50 p-6 border-t border-slate-800">
               <div className="space-y-4 mb-4">
                 {p.comments && p.comments.map((c: any) => (

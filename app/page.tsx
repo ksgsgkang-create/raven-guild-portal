@@ -9,15 +9,24 @@ import GuildAdminManager from '../components/GuildAdminManager';
 import NoticeBoardList from '../components/NoticeBoardList';
 import ActivityRanking from '../components/ActivityRanking';
 import FreeBoard from '../components/FreeBoard';
+import AccountManager from '../components/AccountManager';
+import GuildManager from '../components/GuildManager'; // 새로 추가된 연합 길드 관리 페이지
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'ranking' | 'freeboard' | 'raid' | 'members' | 'admin'>('ranking');
+  const [activeTab, setActiveTab] = useState<'ranking' | 'freeboard' | 'members' | 'account' | 'guilds' | 'raid' | 'admin'>('ranking');
   const [loading, setLoading] = useState(true);
   const [guilds, setGuilds] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
+  
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('currentUser');
@@ -43,13 +52,33 @@ export default function Home() {
     { id: 'freeboard', label: '자유 게시판' },
     { id: 'members', label: '인원 관리' },
     ...(currentUser.is_admin ? [
+      { id: 'account', label: '계정 관리' },
+      { id: 'guilds', label: '길드 관리' }, // 연합 길드 관리 탭
       { id: 'raid', label: '보스 스캔' },
       { id: 'admin', label: '승인/공지' }
     ] : [])
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8 selection:bg-sky-500">
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8 selection:bg-sky-500 relative">
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            className={`fixed top-6 right-6 px-6 py-3 rounded-2xl text-white font-bold shadow-2xl z-50 border flex items-center gap-3 ${
+              toast.type === 'error' 
+                ? 'bg-red-900/80 border-red-500/30 text-red-100' 
+                : 'bg-slate-900/95 border-sky-500/40 text-sky-200 shadow-sky-900/20'
+            }`}
+          >
+            <div className={`w-3 h-3 rounded-full ${toast.type === 'error' ? 'bg-red-500' : 'bg-sky-400 animate-pulse'}`} />
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.nav 
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -88,16 +117,18 @@ export default function Home() {
               transition={{ duration: 0.2 }}
             >
               {activeTab === 'ranking' && <ActivityRanking members={members} />}
-              {activeTab === 'freeboard' && <FreeBoard currentUser={currentUser} />}
+              {activeTab === 'freeboard' && <FreeBoard currentUser={currentUser} showToast={showToast} />}
+              {activeTab === 'members' && <MemberManager members={members} guilds={guilds} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />}
+              {activeTab === 'account' && currentUser.is_admin && <AccountManager allUsers={allUsers} onRefresh={fetchData} showToast={showToast} />}
+              {activeTab === 'guilds' && currentUser.is_admin && <GuildManager guilds={guilds} onRefresh={fetchData} showToast={showToast} />}
               {activeTab === 'raid' && currentUser.is_admin && <RaidScanner members={members} onRefresh={fetchData} />}
-              {activeTab === 'members' && <MemberManager members={members} guilds={guilds} currentUser={currentUser} onRefresh={fetchData} />}
-              {activeTab === 'admin' && currentUser.is_admin && <GuildAdminManager guilds={guilds} allUsers={allUsers} isAdmin={currentUser.is_admin} onRefresh={fetchData} />}
+              {activeTab === 'admin' && currentUser.is_admin && <GuildAdminManager guilds={guilds} allUsers={allUsers} isAdmin={currentUser.is_admin} onRefresh={fetchData} showToast={showToast} />}
             </motion.div>
           </AnimatePresence>
         </div>
         <aside className="lg:col-span-1 space-y-6">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-            <NoticeBoardList notices={notices} />
+            <NoticeBoardList notices={notices} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />
           </motion.div>
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
