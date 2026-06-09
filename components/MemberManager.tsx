@@ -1,117 +1,208 @@
 'use client';
 import React, { useState } from 'react';
 import { supabase } from '../app/supabase';
+import { motion } from 'framer-motion';
+import { UserPlus, Trash2, Edit2, Check, X, Shield, Users } from 'lucide-react';
 
-interface MemberManagerProps {
-  members: any[];
-  guilds: any[];
-  currentUser: any;
-  onRefresh: () => void;
-}
+export default function MemberManager({ members, guilds, currentUser, onRefresh }: { members: any[], guilds: any[], currentUser: any, onRefresh: () => void }) {
+  const [characterName, setCharacterName] = useState('');
+  const [className, setClassName] = useState('');
+  const [selectedGuild, setSelectedGuild] = useState('');
+  
+  // 수정 상태 관리
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editClassName, setEditClassName] = useState('');
+  const [editGuild, setEditGuild] = useState('');
 
-export default function MemberManager({ members, guilds, currentUser, onRefresh }: MemberManagerProps) {
-  const [filter, setFilter] = useState('전체');
-  const [newName, setNewName] = useState('');
-  const [newGuild, setNewGuild] = useState(guilds.length > 0 ? guilds[0].guild_name : '전국구');
-  const [newJob, setNewJob] = useState('뱅가드');
-
-  const isAdmin = currentUser?.is_admin;
-
-  // 길드별 필터링 로직
-  const filteredMembers = filter === '전체' 
-    ? members 
-    : members.filter(m => m.guild_name === filter);
-
-  // 신규 등록
-  async function handleAddMember(e: React.FormEvent) {
+  // 신규 인원 등록
+  async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName) return alert('캐릭터명을 입력하세요.');
+    if (!characterName || !className || !selectedGuild) return;
 
-    const { error } = await supabase.from('members').insert([{ 
-      character_name: newName, 
-      guild_name: newGuild, 
-      job_class: newJob 
+    const { error } = await supabase.from('members').insert([{
+      character_name: characterName,
+      class_name: className,
+      guild_name: selectedGuild
     }]);
 
     if (error) {
-      alert(`등록 실패: ${error.message}`);
+      alert('등록 실패: ' + error.message);
     } else {
-      alert('등록 성공!');
-      setNewName('');
+      setCharacterName('');
+      setClassName('');
+      setSelectedGuild('');
       onRefresh();
     }
   }
 
-  // 추방
-  async function handleKick(id: number, name: string) {
-    if (!confirm(`${name}님을 정말 추방하시겠습니까?`)) return;
-    await supabase.from('members').delete().eq('id', id);
-    onRefresh();
+  // 인원 삭제
+  async function handleDelete(id: number) {
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+    const { error } = await supabase.from('members').delete().eq('id', id);
+    if (error) {
+      alert('삭제 실패: ' + error.message);
+    } else {
+      onRefresh();
+    }
   }
 
-  // 관리자 권한 토글 (유저 관리 페이지용 로직)
-  async function toggleAdmin(id: number, currentStatus: boolean) {
-    if (!confirm(`관리자 권한을 ${currentStatus ? '해제' : '부여'}하시겠습니까?`)) return;
-    await supabase.from('user_accounts').update({ is_admin: !currentStatus }).eq('id', id);
-    onRefresh();
+  // 수정 시작
+  function handleEditStart(member: any) {
+    setEditingId(member.id);
+    setEditClassName(member.class_name);
+    setEditGuild(member.guild_name);
+  }
+
+  // 수정 저장
+  async function handleSave(id: number) {
+    const { error } = await supabase.from('members')
+      .update({ class_name: editClassName, guild_name: editGuild })
+      .eq('id', id);
+
+    if (error) {
+      alert('수정 실패: ' + error.message);
+    } else {
+      setEditingId(null);
+      onRefresh();
+    }
   }
 
   return (
-    <div className="space-y-6">
-      {/* 1. 필터링 버튼 */}
-      <div className="flex gap-2 bg-slate-800 p-2 rounded-lg border border-slate-700">
-        <button onClick={() => setFilter('전체')} className={`px-4 py-1 rounded text-sm ${filter === '전체' ? 'bg-sky-600' : 'bg-slate-700'}`}>전체</button>
-        {guilds.map(g => (
-          <button key={g.id} onClick={() => setFilter(g.guild_name)} className={`px-4 py-1 rounded text-sm ${filter === g.guild_name ? 'bg-sky-600' : 'bg-slate-700'}`}>
-            {g.guild_name}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-8">
+      {/* 신규 등록 폼 */}
+      <motion.form 
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        onSubmit={handleAdd} 
+        className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
+      >
+        <div>
+          <label className="block text-xs text-slate-400 font-bold mb-1">캐릭터 명</label>
+          <input 
+            value={characterName} 
+            onChange={(e) => setCharacterName(e.target.value)} 
+            placeholder="이름 입력" 
+            className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm" 
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 font-bold mb-1">직업</label>
+          <input 
+            value={className} 
+            onChange={(e) => setClassName(e.target.value)} 
+            placeholder="직업 입력" 
+            className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm" 
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 font-bold mb-1">소속 길드</label>
+          <select 
+            value={selectedGuild} 
+            onChange={(e) => setSelectedGuild(e.target.value)} 
+            className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 outline-none focus:border-sky-500 text-sm"
+          >
+            <option value="">길드 선택</option>
+            {guilds.map((g) => (
+              <option key={g.id} value={g.name}>{g.name}</option>
+            ))}
+          </select>
+        </div>
+        <button className="bg-sky-600 hover:bg-sky-500 p-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm cursor-pointer transition-all">
+          <UserPlus size={18} /> 신규 등록
+        </button>
+      </motion.form>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 2. 등록 폼 (관리자만 가능) */}
-        {isAdmin && (
-          <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 h-fit">
-            <h3 className="font-bold text-emerald-400 mb-4">➕ 신규 길드원 등록</h3>
-            <form onSubmit={handleAddMember} className="space-y-3">
-              <input placeholder="캐릭터명" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-slate-900 p-2 rounded border border-slate-600" />
-              <select value={newGuild} onChange={(e) => setNewGuild(e.target.value)} className="w-full bg-slate-900 p-2 rounded border border-slate-600">
-                {guilds.map(g => <option key={g.id} value={g.guild_name}>{g.guild_name}</option>)}
-              </select>
-              <select value={newJob} onChange={(e) => setNewJob(e.target.value)} className="w-full bg-slate-900 p-2 rounded border border-slate-600">
-                {['뱅가드', '버서커', '디스트로이어', '나이트레인저', '엘리멘탈리스트', '디바인캐스터', '어쌔신', '데스브링어', '건슬링어', '워로드'].map(job => (
-                  <option key={job} value={job}>{job}</option>
-                ))}
-              </select>
-              <button type="submit" className="w-full bg-emerald-600 py-2 rounded font-bold hover:bg-emerald-700">등록하기</button>
-            </form>
-          </div>
-        )}
+      {/* 인원 목록 및 수정/삭제 */}
+      <div className="bg-slate-900/80 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
+          <Users className="text-sky-400" />
+          <h2 className="text-xl font-black text-white">등록된 길드원 목록 ({members.length}명)</h2>
+        </div>
+        <div className="divide-y divide-slate-800">
+          {members.map((m) => (
+            <div key={m.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-800/20 transition-colors">
+              {editingId === m.id ? (
+                // 수정 중일 때 화면
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                  <div className="text-lg font-bold text-white flex items-center gap-2">
+                    <span className="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400">이름</span> {m.character_name}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500">직업 수정</label>
+                    <input 
+                      value={editClassName} 
+                      onChange={(e) => setEditClassName(e.target.value)} 
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500">길드 수정</label>
+                    <select 
+                      value={editGuild} 
+                      onChange={(e) => setEditGuild(e.target.value)} 
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-sky-500"
+                    >
+                      {guilds.map((g) => (
+                        <option key={g.id} value={g.name}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                // 일반 조회 화면
+                <div className="flex-1 flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="font-bold text-white text-lg min-w-[200px]">{m.character_name}</div>
+                  <div className="flex items-center gap-3 text-sm text-slate-400">
+                    <span className="flex items-center gap-1 bg-slate-800/60 px-3 py-1 rounded-full text-xs font-semibold">
+                      직업: <strong className="text-sky-300">{m.class_name}</strong>
+                    </span>
+                    <span className="flex items-center gap-1 bg-slate-800/60 px-3 py-1 rounded-full text-xs font-semibold border border-slate-700">
+                      <Shield size={14} className="text-amber-400" /> 소속: <strong className="text-amber-300">{m.guild_name}</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
 
-        {/* 3. 리스트 테이블 */}
-        <div className={`bg-slate-800 p-6 rounded-lg border border-slate-700 ${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
-          <h3 className="font-bold text-white mb-4">📋 명단 (총 {filteredMembers.length}명)</h3>
-          <div className="overflow-y-auto max-h-[500px]">
-            <table className="w-full text-sm text-left">
-              <thead className="text-slate-400 border-b border-slate-700">
-                <tr><th className="pb-2">캐릭터명</th><th className="pb-2">소속</th><th className="pb-2">직업</th>{isAdmin && <th className="pb-2 text-center">관리</th>}</tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map(m => (
-                  <tr key={m.id} className="border-b border-slate-700/50">
-                    <td className="py-3 text-amber-200 font-bold">{m.character_name}</td>
-                    <td className="py-3 text-blue-300">{m.guild_name}</td>
-                    <td className="py-3 text-slate-300">{m.job_class}</td>
-                    {isAdmin && (
-                      <td className="py-3 text-center space-x-2">
-                        <button onClick={() => handleKick(m.id, m.character_name)} className="text-red-400 hover:text-red-300">추방</button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              {/* 버튼 영역 */}
+              <div className="flex items-center gap-2 self-end md:self-center">
+                {editingId === m.id ? (
+                  <>
+                    <button 
+                      onClick={() => handleSave(m.id)} 
+                      className="bg-emerald-600 hover:bg-emerald-500 p-2.5 rounded-xl cursor-pointer transition-colors text-white"
+                      title="저장"
+                    >
+                      <Check size={18} />
+                    </button>
+                    <button 
+                      onClick={() => setEditingId(null)} 
+                      className="bg-slate-700 hover:bg-slate-600 p-2.5 rounded-xl cursor-pointer transition-colors text-white"
+                      title="취소"
+                    >
+                      <X size={18} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => handleEditStart(m)} 
+                      className="bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 p-2.5 rounded-xl cursor-pointer transition-colors border border-sky-500/30"
+                      title="수정"
+                    >
+                      <Edit2 size={18} />
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(m.id)} 
+                      className="bg-red-950/40 hover:bg-red-900/40 text-red-400 p-2.5 rounded-xl cursor-pointer transition-colors border border-red-800/30"
+                      title="삭제"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
