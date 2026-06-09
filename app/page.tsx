@@ -2,19 +2,28 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Shield, Key, Users, Swords, Settings, Megaphone, UserCog } from 'lucide-react';
 import AuthForm from '../components/AuthForm';
 import RaidScanner from '../components/RaidScanner';
-import MemberManager from '../components/MemberManager';
+import MemberManager from '../components/MemberManager'; // 등록/수정/삭제용 (관리자 콘솔로 이동)
+import MemberStatus from '../components/MemberStatus';  // [신규] 일반 조회 및 상세 검색 전용
 import GuildAdminManager from '../components/GuildAdminManager';
 import NoticeBoardList from '../components/NoticeBoardList';
 import ActivityRanking from '../components/ActivityRanking';
 import FreeBoard from '../components/FreeBoard';
 import AccountManager from '../components/AccountManager';
-import GuildManager from '../components/GuildManager'; // 새로 추가된 연합 길드 관리 페이지
+import GuildManager from '../components/GuildManager'; 
+import BossManager from '../components/BossManager'; 
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'ranking' | 'freeboard' | 'members' | 'account' | 'guilds' | 'raid' | 'admin'>('ranking');
+  
+  // '인원 현황' (조회 전용) 탭이 기본 활성화되도록 설정
+  const [activeTab, setActiveTab] = useState<'ranking' | 'freeboard' | 'members' | 'admin-console'>('members');
+  
+  // 관리자 콘솔 내부 서브 탭 (인원 관리가 첫 번째로 오도록 세팅)
+  const [adminSubTab, setAdminSubTab] = useState<'members-admin' | 'admin' | 'raid' | 'boss-settings' | 'guilds' | 'account'>('members-admin');
+
   const [loading, setLoading] = useState(true);
   const [guilds, setGuilds] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
@@ -47,16 +56,22 @@ export default function Home() {
   if (loading) return <div className="flex justify-center items-center h-screen bg-slate-950 text-white">로딩 중...</div>;
   if (!currentUser) return <AuthForm onLoginSuccess={setCurrentUser} />;
 
-  const tabs = [
+  // 상단 메인 메뉴 정의
+  const mainTabs = [
     { id: 'ranking', label: '활동 랭킹' },
     { id: 'freeboard', label: '자유 게시판' },
-    { id: 'members', label: '인원 관리' },
-    ...(currentUser.is_admin ? [
-      { id: 'account', label: '계정 관리' },
-      { id: 'guilds', label: '길드 관리' }, // 연합 길드 관리 탭
-      { id: 'raid', label: '보스 스캔' },
-      { id: 'admin', label: '승인/공지' }
-    ] : [])
+    { id: 'members', label: '인원 현황' },
+    ...(currentUser.is_admin ? [{ id: 'admin-console', label: '⚙️ 관리자 콘솔' }] : [])
+  ];
+
+  // 관리자 내부 서브 메뉴 (인원 관리 추가)
+  const adminConsoleMenus = [
+    { id: 'members-admin', label: '인원 관리(등록/편집)', icon: <UserCog size={16} /> },
+    { id: 'admin', label: '승인 및 공지사항', icon: <Megaphone size={16} /> },
+    { id: 'raid', label: '실시간 보스 스캔', icon: <Swords size={16} /> },
+    { id: 'boss-settings', label: '대상 보스/배점 설정', icon: <Settings size={16} /> },
+    { id: 'guilds', label: '연합 소속 길드 관리', icon: <Shield size={16} /> },
+    { id: 'account', label: '전체 계정 관리', icon: <Key size={16} /> },
   ];
 
   return (
@@ -79,6 +94,7 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* 헤더 네비게이션 */}
       <motion.nav 
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -86,12 +102,16 @@ export default function Home() {
       >
         <h1 className="text-3xl font-black text-amber-500 tracking-tighter">전국구</h1>
         <div className="flex flex-wrap gap-2 justify-center">
-          {tabs.map((t) => (
+          {mainTabs.map((t) => (
             <button 
               key={t.id} 
               onClick={() => setActiveTab(t.id as any)} 
               className={`px-5 py-2 rounded-full transition-all duration-300 cursor-pointer font-bold ${
-                activeTab === t.id ? 'bg-sky-600 text-white shadow-lg shadow-sky-900/50 scale-105' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                activeTab === t.id 
+                  ? t.id === 'admin-console' 
+                    ? 'bg-purple-700 text-white shadow-lg shadow-purple-900/50 scale-105'
+                    : 'bg-sky-600 text-white shadow-lg shadow-sky-900/50 scale-105' 
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
               {t.label}
@@ -116,16 +136,71 @@ export default function Home() {
               exit={{ x: -10, opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
+              {/* 일반 대메뉴 컴포넌트 */}
               {activeTab === 'ranking' && <ActivityRanking members={members} />}
               {activeTab === 'freeboard' && <FreeBoard currentUser={currentUser} showToast={showToast} />}
-              {activeTab === 'members' && <MemberManager members={members} guilds={guilds} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />}
-              {activeTab === 'account' && currentUser.is_admin && <AccountManager allUsers={allUsers} onRefresh={fetchData} showToast={showToast} />}
-              {activeTab === 'guilds' && currentUser.is_admin && <GuildManager guilds={guilds} onRefresh={fetchData} showToast={showToast} />}
-              {activeTab === 'raid' && currentUser.is_admin && <RaidScanner members={members} onRefresh={fetchData} />}
-              {activeTab === 'admin' && currentUser.is_admin && <GuildAdminManager guilds={guilds} allUsers={allUsers} isAdmin={currentUser.is_admin} onRefresh={fetchData} showToast={showToast} />}
+              
+              {/* [신규 변경점] 인원 현황 탭 진입 시 조회 및 상세검색 전용 컴포넌트 출력 */}
+              {activeTab === 'members' && <MemberStatus members={members} guilds={guilds} />}
+              
+              {/* 관리자 콘솔 */}
+              {activeTab === 'admin-console' && currentUser.is_admin && (
+                <div className="space-y-6">
+                  <div className="bg-slate-900/60 p-2 rounded-2xl border border-slate-800 flex flex-wrap gap-1.5 shadow-xl">
+                    {adminConsoleMenus.map((sub) => (
+                      <button
+                        key={sub.id}
+                        onClick={() => setAdminSubTab(sub.id as any)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          adminSubTab === sub.id
+                            ? 'bg-slate-800 text-white shadow-md border border-slate-700 scale-102'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-950/40'
+                        }`}
+                      >
+                        {sub.icon}
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-4">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={adminSubTab}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        {/* 관리자 콘솔 내부 서브 탭 분기 */}
+                        {adminSubTab === 'members-admin' && (
+                          <MemberManager members={members} guilds={guilds} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />
+                        )}
+                        {adminSubTab === 'admin' && (
+                          <GuildAdminManager allUsers={allUsers} isAdmin={currentUser.is_admin} onRefresh={fetchData} showToast={showToast} />
+                        )}
+                        {adminSubTab === 'raid' && (
+                          <RaidScanner members={members} onRefresh={fetchData} />
+                        )}
+                        {adminSubTab === 'boss-settings' && (
+                          <BossManager isAdmin={currentUser.is_admin} showToast={showToast} />
+                        )}
+                        {adminSubTab === 'guilds' && (
+                          <GuildManager guilds={guilds} onRefresh={fetchData} showToast={showToast} />
+                        )}
+                        {adminSubTab === 'account' && (
+                          <AccountManager allUsers={allUsers} onRefresh={fetchData} showToast={showToast} />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
+        
+        {/* 사이드바 영역 */}
         <aside className="lg:col-span-1 space-y-6">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             <NoticeBoardList notices={notices} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />
@@ -134,7 +209,7 @@ export default function Home() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
             className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl"
           >
-            <h3 className="font-bold text-sky-400 mb-2 flex items-center gap-2">⚡ 오늘의 길드 현황</h3>
+            <h3 className="font-bold text-sky-400 mb-2 flex items-center gap-2">⚡ 총 연합 길드원 수</h3>
             <div className="text-3xl font-black text-white">{members.length}<span className="text-sm font-normal text-slate-400 ml-1">명 활동 중</span></div>
           </motion.div>
         </aside>
